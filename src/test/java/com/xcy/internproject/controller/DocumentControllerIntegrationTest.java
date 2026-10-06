@@ -1,7 +1,7 @@
 package com.xcy.internproject.controller;
 
-import com.xcy.internproject.model.User;
-import com.xcy.internproject.service.UserService;
+import com.xcy.internproject.model.Document;
+import com.xcy.internproject.service.DocumentService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -16,94 +16,96 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class UserControllerIntegrationTest {
+class DocumentControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
-    private UserService userService;
+    private DocumentService documentService;
 
     @Test
-    void createsUserAndReturnsCreatedResponse() throws Exception {
-        mockMvc.perform(post("/users")
+    void createsDocumentAndReturnsCreatedResponse() throws Exception {
+        mockMvc.perform(post("/documents")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "username": "alice",
-                                  "email": "alice@example.com"
+                                  "title": "Spring IOC",
+                                  "content": "IOC manages object dependencies."
                                 }
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("OK"))
                 .andExpect(jsonPath("$.message").value("成功"))
                 .andExpect(jsonPath("$.data.id").isNumber())
-                .andExpect(jsonPath("$.data.username").value("alice"))
-                .andExpect(jsonPath("$.data.email").value("alice@example.com"));
+                .andExpect(jsonPath("$.data.title").value("Spring IOC"))
+                .andExpect(jsonPath("$.data.content").value("IOC manages object dependencies."));
     }
 
     @Test
-    void returnsExistingUser() throws Exception {
-        User user = userService.createUser("bob", "bob@example.com");
+    void returnsExistingDocument() throws Exception {
+        Document document = documentService.createDocument("Java Collections", "Collections content");
 
-        mockMvc.perform(get("/users/{id}", user.getId()))
+        mockMvc.perform(get("/documents/{id}", document.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("OK"))
-                .andExpect(jsonPath("$.data.id").value(user.getId()))
-                .andExpect(jsonPath("$.data.username").value("bob"))
-                .andExpect(jsonPath("$.data.email").value("bob@example.com"));
+                .andExpect(jsonPath("$.data.id").value(document.getId()))
+                .andExpect(jsonPath("$.data.title").value("Java Collections"))
+                .andExpect(jsonPath("$.data.content").value("Collections content"));
     }
 
     @Test
-    void returnsNotFoundForMissingUser() throws Exception {
-        mockMvc.perform(get("/users/{id}", 999999L))
+    void returnsNotFoundForMissingDocument() throws Exception {
+        mockMvc.perform(get("/documents/{id}", 999999L))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("用户（ID：999999）不存在"))
+                .andExpect(jsonPath("$.message").value("文档（ID：999999）不存在"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
-    void rejectsBlankUsername() throws Exception {
-        mockMvc.perform(post("/users")
+    void rejectsBlankTitle() throws Exception {
+        mockMvc.perform(post("/documents")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "username": " ",
-                                  "email": "alice@example.com"
+                                  "title": " ",
+                                  "content": "Document content"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.message").value("username: 用户名不能为空"));
+                .andExpect(jsonPath("$.message").value("title: 标题不能为空"));
     }
 
     @Test
-    void rejectsMalformedEmail() throws Exception {
-        mockMvc.perform(post("/users")
+    void rejectsMissingContent() throws Exception {
+        mockMvc.perform(post("/documents")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "username": "alice",
-                                  "email": "not-an-email"
+                                  "title": "Spring IOC"
                                 }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.message").value("email: 邮箱格式不正确"));
+                .andExpect(jsonPath("$.message").value("content: 正文不能为空"));
     }
 
     @Test
-    void rejectsMissingEmail() throws Exception {
-        mockMvc.perform(post("/users")
+    void rejectsTitleLongerThanTwoHundredCharacters() throws Exception {
+        String longTitle = "a".repeat(201);
+
+        mockMvc.perform(post("/documents")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "username": "alice"
+                                  "title": "%s",
+                                  "content": "Document content"
                                 }
-                                """))
+                                """.formatted(longTitle)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.message").value("email: 邮箱不能为空"));
+                .andExpect(jsonPath("$.message").value("title: 标题长度不能超过200个字符"));
     }
 }

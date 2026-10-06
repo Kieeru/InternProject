@@ -48,6 +48,6 @@ class UserServiceTest {
     void throwsWhenUserDoesNotExist() {
         assertThatThrownBy(() -> userService.getUser(999L))
                 .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessage("User with id 999 was not found");
+                .hasMessage("用户（ID：999）不存在");
     }
 }

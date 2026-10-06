@@ -6,13 +6,13 @@ import jakarta.validation.constraints.Size;
 
 public class CreateUserRequest {
 
-    @NotBlank(message = "username must not be blank")
-    @Size(max = 50, message = "username must not exceed 50 characters")
+    @NotBlank(message = "用户名不能为空")
+    @Size(max = 50, message = "用户名长度不能超过50个字符")
     private String username;
 
-    @NotBlank(message = "email must not be blank")
-    @Email(message = "email must be valid")
-    @Size(max = 100, message = "email must not exceed 100 characters")
+    @NotBlank(message = "邮箱不能为空")
+    @Email(message = "邮箱格式不正确")
+    @Size(max = 100, message = "邮箱长度不能超过100个字符")
     private String email;
 
     public CreateUserRequest() {

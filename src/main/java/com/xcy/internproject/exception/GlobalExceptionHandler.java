@@ -26,7 +26,7 @@ public class GlobalExceptionHandler {
                         Comparator.nullsLast(String::compareTo)))
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .findFirst()
-                .orElse("request validation failed");
+                .orElse("请求参数校验失败");
 
         return ResponseEntity.badRequest()
                 .body(ApiResponse.error("VALIDATION_ERROR", message));
