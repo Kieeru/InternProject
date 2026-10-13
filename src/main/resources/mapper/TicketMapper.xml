@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xcy.internproject.repository.mybatis.mapper.TicketMapper">
+
+    <insert id="insert"
+            parameterType="com.xcy.internproject.repository.mybatis.record.TicketRecord"
+            useGeneratedKeys="true"
+            keyProperty="id"
+            keyColumn="id">
+        INSERT INTO tickets (title, description, status)
+        VALUES (#{title}, #{description}, 'PENDING')
+    </insert>
+
+    <select id="findById"
+            parameterType="java.lang.Long"
+            resultType="com.xcy.internproject.repository.mybatis.record.TicketRecord">
+        SELECT id, title, description, status, created_at
+        FROM tickets
+        WHERE id = #{id}
+          AND deleted = 0
+    </select>
+
+    <select id="findByIdForUpdate"
+            parameterType="java.lang.Long"
+            resultType="com.xcy.internproject.repository.mybatis.record.TicketRecord">
+        SELECT id, title, description, status, created_at
+        FROM tickets
+        WHERE id = #{id}
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
+    <update id="updateStatus">
+        UPDATE tickets
+        SET status = #{status}
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+
+</mapper>

@@ -2,14 +2,12 @@ package com.xcy.internproject.repository;
 
 import com.xcy.internproject.model.Ticket;
 import com.xcy.internproject.model.TicketStatus;
-import org.springframework.stereotype.Repository;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.Optional;
 
-@Repository
 public class InMemoryTicketRepository implements TicketRepository {
 
     private final ConcurrentMap<Long, Ticket> tickets = new ConcurrentHashMap<>();
@@ -26,6 +24,11 @@ public class InMemoryTicketRepository implements TicketRepository {
     @Override
     public Optional<Ticket> findById(Long id) {
         return Optional.ofNullable(tickets.get(id));
+    }
+
+    @Override
+    public Optional<Ticket> findByIdForUpdate(Long id) {
+        return findById(id);
     }
 
     @Override

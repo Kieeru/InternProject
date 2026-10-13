@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -17,6 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Sql("/db/cleanup.sql")
 class TicketControllerIntegrationTest {
 
     @Autowired
@@ -71,6 +73,38 @@ class TicketControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("description: 工单描述不能为空"));
+    }
+
+    @Test
+    void rejectsTicketTitleLongerThanDatabaseColumn() throws Exception {
+        mockMvc.perform(post("/tickets")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "%s",
+                                  "description": "标题超过数据库字段限制"
+                                }
+                                """.formatted("工".repeat(201))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("title: 工单标题长度不能超过200个字符"));
+    }
+
+    @Test
+    void rejectsTicketDescriptionExceedingTextUtf8ByteLimit() throws Exception {
+        mockMvc.perform(post("/tickets")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "描述过长",
+                                  "description": "%s"
+                                }
+                                """.formatted("😀".repeat(16_384))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message")
+                        .value("description: 工单描述不能超过65535个UTF-8字节"));
     }
 
     @Test

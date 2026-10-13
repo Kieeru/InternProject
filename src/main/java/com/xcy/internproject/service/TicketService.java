@@ -6,6 +6,7 @@ import com.xcy.internproject.model.Ticket;
 import com.xcy.internproject.model.TicketStatus;
 import com.xcy.internproject.repository.TicketRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TicketService {
@@ -20,8 +21,9 @@ public class TicketService {
         return ticketRepository.save(title, description);
     }
 
+    @Transactional
     public Ticket updateStatus(Long id, TicketStatus targetStatus) {
-        Ticket ticket = ticketRepository.findById(id)
+        Ticket ticket = ticketRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("工单", id));
 
         if (!ticket.getStatus().canTransitionTo(targetStatus)) {

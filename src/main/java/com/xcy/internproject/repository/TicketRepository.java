@@ -11,5 +11,7 @@ public interface TicketRepository {
 
     Optional<Ticket> findById(Long id);
 
+    Optional<Ticket> findByIdForUpdate(Long id);
+
     Ticket updateStatus(Long id, TicketStatus status);
 }
