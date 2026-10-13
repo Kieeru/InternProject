@@ -20,6 +20,12 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("RESOURCE_NOT_FOUND", exception.getMessage()));
     }
 
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateResource(DuplicateResourceException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error("DUPLICATE_RESOURCE", exception.getMessage()));
+    }
+
     @ExceptionHandler(InvalidTicketStatusTransitionException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidStatusTransition(
             InvalidTicketStatusTransitionException exception) {

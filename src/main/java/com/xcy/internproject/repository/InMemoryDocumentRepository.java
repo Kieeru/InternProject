@@ -1,14 +1,12 @@
 package com.xcy.internproject.repository;
 
 import com.xcy.internproject.model.Document;
-import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-@Repository
 public class InMemoryDocumentRepository implements DocumentRepository {
 
     private final ConcurrentMap<Long, Document> documents = new ConcurrentHashMap<>();

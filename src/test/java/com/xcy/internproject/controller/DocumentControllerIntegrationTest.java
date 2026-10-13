@@ -1,5 +1,6 @@
 package com.xcy.internproject.controller;
 
+import com.jayway.jsonpath.JsonPath;
 import com.xcy.internproject.model.Document;
 import com.xcy.internproject.service.DocumentService;
 import org.junit.jupiter.api.Test;
@@ -7,7 +8,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -16,6 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
+@Sql("/db/cleanup.sql")
 class DocumentControllerIntegrationTest {
 
     @Autowired
@@ -40,6 +46,53 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.id").isNumber())
                 .andExpect(jsonPath("$.data.title").value("Spring IOC"))
                 .andExpect(jsonPath("$.data.content").value("IOC manages object dependencies."));
+    }
+
+    @Test
+    void createsAndReturnsChineseDocument() throws Exception {
+        String content = "第一行中文正文\n第二行保留换行";
+        MvcResult createResult = mockMvc.perform(post("/documents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "MyBatis 中文文档",
+                                  "content": "第一行中文正文\\n第二行保留换行"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.title").value("MyBatis 中文文档"))
+                .andExpect(jsonPath("$.data.content").value(content))
+                .andExpect(jsonPath("$.data.createdAt").doesNotExist())
+                .andExpect(jsonPath("$.data.updatedAt").doesNotExist())
+                .andReturn();
+
+        Number documentId = JsonPath.read(
+                createResult.getResponse().getContentAsString(), "$.data.id");
+
+        mockMvc.perform(get("/documents/{id}", documentId.longValue()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.id").value(documentId.longValue()))
+                .andExpect(jsonPath("$.data.title").value("MyBatis 中文文档"))
+                .andExpect(jsonPath("$.data.content").value(content))
+                .andExpect(jsonPath("$.data.createdAt").doesNotExist())
+                .andExpect(jsonPath("$.data.updatedAt").doesNotExist());
+    }
+
+    @Test
+    void acceptsTitleWithExactlyTwoHundredCharacters() throws Exception {
+        String title = "文".repeat(200);
+
+        mockMvc.perform(post("/documents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "%s",
+                                  "content": "标题边界测试"
+                                }
+                                """.formatted(title)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.title").value(title));
     }
 
     @Test

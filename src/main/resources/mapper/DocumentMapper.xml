@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xcy.internproject.repository.mybatis.mapper.DocumentMapper">
+
+    <insert id="insert"
+            parameterType="com.xcy.internproject.repository.mybatis.record.DocumentRecord"
+            useGeneratedKeys="true"
+            keyProperty="id"
+            keyColumn="id">
+        INSERT INTO documents (title, content)
+        VALUES (#{title}, #{content})
+    </insert>
+
+    <select id="findById"
+            parameterType="java.lang.Long"
+            resultType="com.xcy.internproject.repository.mybatis.record.DocumentRecord">
+        SELECT id, title, content, created_at
+        FROM documents
+        WHERE id = #{id}
+          AND deleted = 0
+    </select>
+
+</mapper>
