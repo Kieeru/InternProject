@@ -3,6 +3,9 @@ package com.xcy.internproject.service;
 import com.xcy.internproject.exception.InvalidTicketStatusTransitionException;
 import com.xcy.internproject.model.Ticket;
 import com.xcy.internproject.model.TicketStatus;
+import com.xcy.internproject.model.TicketSummary;
+import com.xcy.internproject.repository.PageResult;
+import com.xcy.internproject.repository.TicketPageQuery;
 import com.xcy.internproject.repository.TicketRepository;
 import com.xcy.internproject.repository.mybatis.MyBatisTicketRepository;
 import org.junit.jupiter.api.Test;
@@ -147,6 +150,11 @@ class TicketStatusConcurrencyIntegrationTest {
         @Override
         public Ticket updateStatus(Long id, TicketStatus status) {
             return delegate.updateStatus(id, status);
+        }
+
+        @Override
+        public PageResult<TicketSummary> findPage(TicketPageQuery query) {
+            return delegate.findPage(query);
         }
 
         private void awaitAfterSnapshotRead() {

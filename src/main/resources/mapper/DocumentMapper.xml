@@ -22,4 +22,28 @@
           AND deleted = 0
     </select>
 
+    <select id="findPage"
+            parameterType="com.xcy.internproject.repository.DocumentPageQuery"
+            resultType="com.xcy.internproject.repository.mybatis.record.DocumentRecord">
+        SELECT id, title, created_at
+        FROM documents
+        WHERE deleted = 0
+        <if test="titlePrefix != null and titlePrefix != ''">
+            AND title LIKE CONCAT(#{titlePrefix}, '%') ESCAPE '='
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count"
+            parameterType="com.xcy.internproject.repository.DocumentPageQuery"
+            resultType="long">
+        SELECT COUNT(*)
+        FROM documents
+        WHERE deleted = 0
+        <if test="titlePrefix != null and titlePrefix != ''">
+            AND title LIKE CONCAT(#{titlePrefix}, '%') ESCAPE '='
+        </if>
+    </select>
+
 </mapper>

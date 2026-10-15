@@ -2,6 +2,8 @@ package com.xcy.internproject.controller;
 
 import com.xcy.internproject.dto.ApiResponse;
 import com.xcy.internproject.dto.CreateDocumentRequest;
+import com.xcy.internproject.dto.DocumentSummaryResponse;
+import com.xcy.internproject.dto.PageResponse;
 import com.xcy.internproject.model.Document;
 import com.xcy.internproject.service.DocumentService;
 import jakarta.validation.Valid;
@@ -12,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -34,5 +37,13 @@ public class DocumentController {
     @GetMapping("/{id}")
     public ApiResponse<Document> getDocument(@PathVariable Long id) {
         return ApiResponse.success(documentService.getDocument(id));
+    }
+
+    @GetMapping
+    public ApiResponse<PageResponse<DocumentSummaryResponse>> listDocuments(
+            @RequestParam(required = false) String titlePrefix,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(documentService.listDocuments(titlePrefix, page, size));
     }
 }

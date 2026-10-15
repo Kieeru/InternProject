@@ -1,6 +1,9 @@
 package com.xcy.internproject.service;
 
 import com.xcy.internproject.exception.ResourceNotFoundException;
+import com.xcy.internproject.exception.InvalidPaginationException;
+import com.xcy.internproject.dto.PageResponse;
+import com.xcy.internproject.dto.DocumentSummaryResponse;
 import com.xcy.internproject.model.Document;
 import com.xcy.internproject.repository.InMemoryDocumentRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,5 +54,42 @@ class DocumentServiceTest {
         assertThatThrownBy(() -> documentService.getDocument(999L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("文档（ID：999）不存在");
+    }
+
+    @Test
+    void listsDocumentsWithOneBasedPaginationAndTotalPages() {
+        documentService.createDocument("Spring IOC", "正文一");
+        documentService.createDocument("Java 集合", "正文二");
+        Document newest = documentService.createDocument("Spring MVC", "正文三");
+
+        PageResponse<DocumentSummaryResponse> response =
+                documentService.listDocuments("Spring", 1, 1);
+
+        assertThat(response.getItems()).containsExactly(
+                new DocumentSummaryResponse(newest.getId(), "Spring MVC",
+                        response.getItems().getFirst().createdAt()));
+        assertThat(response.getPage()).isEqualTo(1);
+        assertThat(response.getSize()).isEqualTo(1);
+        assertThat(response.getTotal()).isEqualTo(2);
+        assertThat(response.getTotalPages()).isEqualTo(2);
+    }
+
+    @Test
+    void normalizesBlankDocumentPrefixToNoFilter() {
+        documentService.createDocument("Spring IOC", "正文一");
+        documentService.createDocument("Java 集合", "正文二");
+
+        PageResponse<DocumentSummaryResponse> response =
+                documentService.listDocuments("   ", 1, 20);
+
+        assertThat(response.getTotal()).isEqualTo(2);
+        assertThat(response.getItems()).hasSize(2);
+    }
+
+    @Test
+    void rejectsInvalidDocumentPage() {
+        assertThatThrownBy(() -> documentService.listDocuments(null, 0, 20))
+                .isInstanceOf(InvalidPaginationException.class)
+                .hasMessage("页码不能小于1");
     }
 }

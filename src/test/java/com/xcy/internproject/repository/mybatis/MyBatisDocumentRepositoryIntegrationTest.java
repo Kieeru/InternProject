@@ -1,7 +1,10 @@
 package com.xcy.internproject.repository.mybatis;
 
 import com.xcy.internproject.model.Document;
+import com.xcy.internproject.model.DocumentSummary;
+import com.xcy.internproject.repository.DocumentPageQuery;
 import com.xcy.internproject.repository.DocumentRepository;
+import com.xcy.internproject.repository.PageResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -9,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,5 +75,110 @@ class MyBatisDocumentRepositoryIntegrationTest {
         Optional<Document> found = documentRepository.findById(saved.getId());
 
         assertThat(found).isEmpty();
+    }
+
+    @Test
+    void listsDocumentsByCreatedTimeAndIdDescending() {
+        LocalDateTime older = LocalDateTime.of(2026, 10, 13, 9, 0);
+        LocalDateTime newer = LocalDateTime.of(2026, 10, 13, 10, 0);
+        Long olderId = insertDocument("较早文档", older, false);
+        Long firstNewerId = insertDocument("同时间文档一", newer, false);
+        Long secondNewerId = insertDocument("同时间文档二", newer, false);
+
+        PageResult<DocumentSummary> result = documentRepository.findPage(
+                new DocumentPageQuery(null, 0, 20));
+
+        assertThat(result.getItems())
+                .extracting(DocumentSummary::id)
+                .containsExactly(secondNewerId, firstNewerId, olderId);
+        assertThat(result.getTotal()).isEqualTo(3);
+    }
+
+    @Test
+    void filtersDocumentsByTitlePrefixAndKeepsCountConsistent() {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 10, 13, 10, 0);
+        Long firstMatch = insertDocument("Spring Boot 入门", createdAt, false);
+        Long secondMatch = insertDocument("Spring MVC 指南", createdAt.plusMinutes(1), false);
+        insertDocument("MyBatis 指南", createdAt.plusMinutes(2), false);
+        insertDocument("Spring 已删除", createdAt.plusMinutes(3), true);
+
+        PageResult<DocumentSummary> result = documentRepository.findPage(
+                new DocumentPageQuery("Spring", 0, 20));
+
+        assertThat(result.getItems())
+                .extracting(DocumentSummary::id)
+                .containsExactly(secondMatch, firstMatch);
+        assertThat(result.getTotal()).isEqualTo(2);
+    }
+
+    @Test
+    void treatsLikeWildcardsInDocumentPrefixAsLiteralText() {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 10, 13, 10, 0);
+        Long literalMatch = insertDocument("Spring_%=专题", createdAt, false);
+        insertDocument("SpringABC=专题", createdAt.plusMinutes(1), false);
+
+        PageResult<DocumentSummary> result = documentRepository.findPage(
+                new DocumentPageQuery("Spring_%=", 0, 20));
+
+        assertThat(result.getItems())
+                .extracting(DocumentSummary::id)
+                .containsExactly(literalMatch);
+        assertThat(result.getTotal()).isEqualTo(1);
+    }
+
+    @Test
+    void treatsEmptyDocumentPrefixAsNoFilter() {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 10, 13, 10, 0);
+        insertDocument("Spring", createdAt, false);
+        insertDocument("MyBatis", createdAt.plusMinutes(1), false);
+
+        PageResult<DocumentSummary> result = documentRepository.findPage(
+                new DocumentPageQuery("", 0, 20));
+
+        assertThat(result.getItems()).hasSize(2);
+        assertThat(result.getTotal()).isEqualTo(2);
+    }
+
+    @Test
+    void returnsRequestedDocumentPage() {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 10, 13, 10, 0);
+        Long first = insertDocument("第一页末尾", createdAt, false);
+        Long second = insertDocument("第二页目标", createdAt.plusMinutes(1), false);
+        Long third = insertDocument("排序第一", createdAt.plusMinutes(2), false);
+
+        PageResult<DocumentSummary> result = documentRepository.findPage(
+                new DocumentPageQuery(null, 1, 1));
+
+        assertThat(result.getItems())
+                .extracting(DocumentSummary::id)
+                .containsExactly(second);
+        assertThat(result.getItems())
+                .extracting(DocumentSummary::id)
+                .doesNotContain(first, third);
+        assertThat(result.getTotal()).isEqualTo(3);
+    }
+
+    @Test
+    void excludesLogicallyDeletedDocumentsFromItemsAndTotal() {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 10, 13, 10, 0);
+        Long activeId = insertDocument("有效文档", createdAt, false);
+        insertDocument("已删除文档", createdAt.plusMinutes(1), true);
+
+        PageResult<DocumentSummary> result = documentRepository.findPage(
+                new DocumentPageQuery(null, 0, 20));
+
+        assertThat(result.getItems())
+                .extracting(DocumentSummary::id)
+                .containsExactly(activeId);
+        assertThat(result.getTotal()).isEqualTo(1);
+    }
+
+    private Long insertDocument(String title, LocalDateTime createdAt, boolean deleted) {
+        jdbcTemplate.update(
+                "INSERT INTO documents (title, content, created_at, deleted) VALUES (?, ?, ?, ?)",
+                title, "分页测试正文", createdAt, deleted ? 1 : 0);
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM documents WHERE title = ? ORDER BY id DESC LIMIT 1",
+                Long.class, title);
     }
 }

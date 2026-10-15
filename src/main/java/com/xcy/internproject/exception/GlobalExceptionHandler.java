@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Comparator;
 
@@ -33,10 +34,24 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("INVALID_STATUS_TRANSITION", exception.getMessage()));
     }
 
+    @ExceptionHandler(InvalidPaginationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidPagination(InvalidPaginationException exception) {
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error("VALIDATION_ERROR", exception.getMessage()));
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnreadableRequestBody() {
         return ResponseEntity.badRequest()
                 .body(ApiResponse.error("INVALID_REQUEST_BODY", "请求体格式错误或包含不支持的值"));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidRequestParameter() {
+        return ResponseEntity.badRequest()
+                .body(ApiResponse.error(
+                        "INVALID_REQUEST_PARAMETER",
+                        "查询参数格式错误或包含不支持的值"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

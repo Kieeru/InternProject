@@ -2,8 +2,11 @@ package com.xcy.internproject.controller;
 
 import com.xcy.internproject.dto.ApiResponse;
 import com.xcy.internproject.dto.CreateTicketRequest;
+import com.xcy.internproject.dto.PageResponse;
+import com.xcy.internproject.dto.TicketSummaryResponse;
 import com.xcy.internproject.dto.UpdateTicketStatusRequest;
 import com.xcy.internproject.model.Ticket;
+import com.xcy.internproject.model.TicketStatus;
 import com.xcy.internproject.service.TicketService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -36,4 +39,13 @@ public class TicketController {
 
     @GetMapping("/{id}")
     public ApiResponse<Ticket> getTicket(@PathVariable Long id){return ApiResponse.success(ticketService.getTicket(id));}
+
+    @GetMapping
+    public ApiResponse<PageResponse<TicketSummaryResponse>> listTickets(
+            @RequestParam(required = false) TicketStatus status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(ticketService.listTickets(status, keyword, page, size));
+    }
 }

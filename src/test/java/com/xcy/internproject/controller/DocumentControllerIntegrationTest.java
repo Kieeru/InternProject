@@ -161,4 +161,55 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.message").value("title: 标题长度不能超过200个字符"));
     }
+
+    @Test
+    void listsDocumentsWithoutReturningContent() throws Exception {
+        Document first = documentService.createDocument("Spring IOC", "不应出现在列表");
+        Document second = documentService.createDocument("Spring MVC", "也不应出现在列表");
+
+        mockMvc.perform(get("/documents"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.size").value(20))
+                .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(second.getId()))
+                .andExpect(jsonPath("$.data.items[1].id").value(first.getId()))
+                .andExpect(jsonPath("$.data.items[0].createdAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.items[0].content").doesNotExist());
+    }
+
+    @Test
+    void filtersAndReturnsSecondDocumentPage() throws Exception {
+        Document first = documentService.createDocument("Spring IOC", "正文一");
+        documentService.createDocument("Java 集合", "正文二");
+        documentService.createDocument("Spring MVC", "正文三");
+
+        mockMvc.perform(get("/documents")
+                        .param("titlePrefix", "Spring")
+                        .param("page", "2")
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].id").value(first.getId()))
+                .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+    }
+
+    @Test
+    void returnsEmptyDocumentPage() throws Exception {
+        mockMvc.perform(get("/documents").param("titlePrefix", "不存在"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total").value(0))
+                .andExpect(jsonPath("$.data.totalPages").value(0));
+    }
+
+    @Test
+    void rejectsDocumentPageBelowOne() throws Exception {
+        mockMvc.perform(get("/documents").param("page", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("页码不能小于1"));
+    }
 }

@@ -1,8 +1,10 @@
 # 第二周 MySQL 与 MyBatis 练习记录
 
-> 本文件使用独立练习库，不连接 `intern_project` 或 `intern_project_test`，也不记录用户名、密码等敏感配置。
+> 本文件不记录用户名、密码等敏感配置。前两项基础 SQL 练习使用独立练习库；第 4 天行锁、第 5 天执行计划和第 6 天自动化验证按各章节说明使用 `intern_project_test`，第 6 天重启持久化验证使用开发库 `intern_project`。
 >
 > 2026-10-12 已完成第一轮答题审查并公布参考答案；用户随后确认已完成建表、约束失败和事务回滚的人工验证。
+>
+> 第 1～6 天集中复习题及参考答案见：[第二周第 1～6 天自测题与参考答案](第二周_第1-6天自测题与参考答案.md)。
 
 ## 一、第一轮答题审查
 
@@ -347,3 +349,137 @@ WHERE username = 'tx_practice';
 - 已理解按主键只锁目标工单既能保证状态流转正确，又能减少无关阻塞、提高并发能力。
 
 审查结论：**通过第 4 天行锁学习检查点，可以进入工单 MyBatis 迁移和并发生产实现。**
+
+## 八、第五天：分页索引与执行计划实测
+
+### 1. 测试数据与执行环境
+
+- 执行日期：2026-10-14。
+- 数据库：MySQL 8.4.10，`intern_project_test`。
+- 数据脚本：`src/test/resources/db/explain-fixtures.sql`；脚本不包含凭据，每条写语句都受 `DATABASE() = 'intern_project_test'` 条件保护，即使客户端遇错后继续执行也不会修改其他数据库。
+- 数据量：文档 1,200 条、工单 1,200 条、角色权限关联 100 条。
+- 有效数据：文档 1,140 条，其中有效 `Spring%` 文档 180 条；工单 1,152 条，每种状态各有 288 条有效记录。
+
+以下结果来自一次真实执行，仅用于解释访问路径。毫秒数会受缓存和机器状态影响，不转写为性能提升百分比。
+
+### 2. 工单状态筛选与无状态筛选
+
+状态筛选 SQL：
+
+```sql
+SELECT id, title, status, created_at
+FROM tickets
+WHERE deleted = 0 AND status = 'PROCESSING'
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+- 传统 `EXPLAIN`：`key=idx_tickets_status_deleted_created_id`，`type=ref`，估算 `rows=288`，`Extra=NULL`。
+- `EXPLAIN ANALYZE`：按 `(status, deleted)` 执行索引查找，估算 288 行；索引节点 `actual time=0.065..0.0669 ms`、输出 20 行、`loops=1`，Limit 节点 `actual time=0.197..0.199 ms`。
+- 结论：等值条件命中联合索引前两列，后续 `created_at DESC, id DESC` 与索引顺序一致，因此没有额外排序节点。
+
+去掉 `status` 后的 SQL：
+
+```sql
+SELECT id, title, status, created_at
+FROM tickets
+WHERE deleted = 0
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+- 传统 `EXPLAIN`：`key=idx_tickets_deleted_created_id`，`type=ref`，估算 `rows=1152`。
+- `EXPLAIN ANALYZE`：按 `deleted=0` 执行索引查找，索引节点 `actual time=0.104..0.105 ms`、输出 20 行、`loops=1`，Limit 节点 `actual time=0.104..0.106 ms`。
+- 结论：无状态条件时，优化器选择以 `deleted` 开头的另一个联合索引；如果只有以 `status` 开头的索引，跳过最左列就不能同样高效地定位这组数据。
+
+### 3. 文档前缀查询与前导通配符查询
+
+前缀查询：
+
+```sql
+SELECT id, title
+FROM documents
+WHERE deleted = 0 AND title LIKE 'Spring%'
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+- 传统 `EXPLAIN`：`key=idx_documents_deleted_title_id`，`type=range`，估算 `rows=180`，`Extra=Using index condition; Using filesort`。
+- `EXPLAIN ANALYZE`：在 `(deleted, title)` 上做索引范围扫描，索引节点 `actual time=0.0307..0.159 ms`、输出 180 行、`loops=1`；随后排序节点输出 20 行，`actual time=0.197..0.198 ms`。
+
+包含查询：
+
+```sql
+SELECT id, title
+FROM documents
+WHERE deleted = 0 AND title LIKE '%Spring%'
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+- 传统 `EXPLAIN`：仍显示 `key=idx_documents_deleted_title_id`，但 `type=ref`、`key_len=1`、估算 `rows=1140`、`filtered=11.11%`，`Extra=Using index condition; Using filesort`。
+- `EXPLAIN ANALYZE`：只能先按 `deleted=0` 做索引查找，再检查标题包含条件；索引节点 `actual time=0.186..0.235 ms`、输出 180 行、`loops=1`，排序节点 `actual time=0.257..0.258 ms`。
+- 结论：`Spring%` 能把标题转换为连续索引范围；`%Spring%` 因前导通配符不能使用 `title` 的有序前缀定位。两条查询都出现额外排序，因为现有文档索引没有在筛选列之后按业务排序顺序包含 `created_at`。
+
+### 4. 角色权限覆盖索引
+
+```sql
+SELECT permission_id
+FROM role_permissions
+WHERE role_id = (
+    SELECT id FROM roles WHERE code = 'EXPLAIN_ROLE'
+);
+```
+
+- 传统 `EXPLAIN`：`role_permissions` 使用联合主键 `PRIMARY(role_id, permission_id)`，估算 `rows=100`，`Extra=Using index`。
+- `EXPLAIN ANALYZE`：明确显示 `Covering index lookup on role_permissions using PRIMARY`，`actual time=0.0067..0.0111 ms`、输出 100 行、`loops=1`。
+- 结论：筛选列 `role_id` 和返回列 `permission_id` 都在联合主键中，存储引擎可以只读取索引完成查询，无需再读取表记录，这就是覆盖索引。
+
+### 5. 第 5 天学习检查点
+
+- [x] 能解释为什么联合索引通常需要从最左列开始连续使用。
+- [x] 能说明等值条件、范围条件和排序列在联合索引中的关系。
+- [x] 能区分“使用了某个索引”和“所有条件都有效利用了索引”。
+- [x] 能解释回表与覆盖索引的区别。
+- [x] 能解释为什么 `%keyword%` 通常不能利用普通 B+Tree 索引的标题有序性。
+- [x] 能根据 `key`、估算 rows、actual rows、loops、actual time 和排序节点阅读本次执行计划。
+
+#### 用户复述与审查
+
+- 用户首先指出 `Spring%` 因开头确定可形成 B+Tree 连续范围，而 `%Spring%` 无法确定开头；该结论正确。
+- 用户能够说明带 `status` 时使用以 `status` 开头的联合索引，不带状态时改用以 `deleted` 开头的索引，并将其与最左前缀联系起来。
+- 对稳定排序的首次解释偏重并发创建；经纠正后明确核心原因是相同 `created_at` 下必须使用唯一 `id` 建立确定顺序。该排序不能替代跨请求快照或游标分页。
+- 用户能够解释回表与覆盖索引的概念；经项目实例提示后进一步说明：`role_permissions` 的 `(role_id, permission_id)` 联合主键同时包含筛选列和返回列，只读索引即可取得结果。
+- 用户首次不了解 `EXPLAIN ANALYZE`；补充讲解后能够准确复述：`EXPLAIN` 不真正执行查询，`EXPLAIN ANALYZE` 会实际执行，并应关注选择的索引、实际输出行数、节点循环次数以及首次产出和全部完成时间。
+
+审查结论：**第 5 天知识检查点通过，可以进入第 6 天。**
+
+## 九、第六天：集成验证与交付收尾
+
+### 1. 自动化与重启验证
+
+- 在确认数据库名为 `intern_project_test` 后清理测试数据，连续两次执行 `mvn test`，两次均为 101/101 通过。
+- 在开发库 `intern_project` 初始化表结构，以 `local` profile 创建用户、文档和工单，停止应用后再次启动；三个资源均可按 ID 查询，证明数据不依赖进程内存。
+- 文档和工单列表均命中目标数据，响应分别只包含 `id,title,createdAt` 与 `id,title,status,createdAt`。
+- 工单 `PENDING → PROCESSING` 成功；重复设置 `PROCESSING` 返回 HTTP 400 和 `INVALID_STATUS_TRANSITION`。
+
+### 2. 失败路径验证
+
+| 场景 | HTTP 状态 | 错误码 |
+| --- | ---: | --- |
+| 查询不存在的用户 | 404 | `RESOURCE_NOT_FOUND` |
+| 文档列表 `page=0` | 400 | `VALIDATION_ERROR` |
+| 工单列表 `status=UNKNOWN` | 400 | `INVALID_REQUEST_PARAMETER` |
+| 重复用户名或邮箱 | 409 | `DUPLICATE_RESOURCE` |
+
+上述失败响应已检查，不包含 JDBC URL、SQL、Java 内部类型、堆栈或数据库约束名。
+
+### 3. 第 6 天学习检查点
+
+- [x] 能解释为什么必须用实际数据库名保护测试清理操作。
+- [x] 能解释连续两次完整测试和应用重启验证分别证明什么。
+- [x] 能把 400、404、409 与本项目稳定错误码对应起来。
+- [x] 能复述 HTTP 到 MySQL 的主要调用链。
+- [x] 能说明 `schema.sql` 初始化的适用范围和版本化迁移的必要性。
+
+完整题目及参考答案已合并到[第二周第 1～6 天自测题与参考答案](第二周_第1-6天自测题与参考答案.md)。用户于 2026-10-15 确认已经掌握，第 6 天及第二周学习检查点通过。

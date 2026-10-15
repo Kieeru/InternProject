@@ -2,6 +2,9 @@ package com.xcy.internproject.service;
 
 import com.xcy.internproject.exception.InvalidTicketStatusTransitionException;
 import com.xcy.internproject.exception.ResourceNotFoundException;
+import com.xcy.internproject.exception.InvalidPaginationException;
+import com.xcy.internproject.dto.PageResponse;
+import com.xcy.internproject.dto.TicketSummaryResponse;
 import com.xcy.internproject.model.Ticket;
 import com.xcy.internproject.model.TicketStatus;
 import com.xcy.internproject.repository.InMemoryTicketRepository;
@@ -112,5 +115,45 @@ class TicketServiceTest {
         assertThatThrownBy(() -> ticketService.updateStatus(999L, TicketStatus.PROCESSING))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("工单（ID：999）不存在");
+    }
+
+    @Test
+    void listsTicketsWithCombinedFiltersAndPaginationMetadata() {
+        Ticket first = ticketService.createTicket("登录故障一", "描述一");
+        ticketService.updateStatus(first.getId(), TicketStatus.PROCESSING);
+        ticketService.createTicket("登录故障二", "描述二");
+        Ticket newest = ticketService.createTicket("登录故障三", "描述三");
+        ticketService.updateStatus(newest.getId(), TicketStatus.PROCESSING);
+
+        PageResponse<TicketSummaryResponse> response =
+                ticketService.listTickets(TicketStatus.PROCESSING, "登录", 1, 1);
+
+        assertThat(response.getItems()).singleElement()
+                .satisfies(item -> {
+                    assertThat(item.id()).isEqualTo(newest.getId());
+                    assertThat(item.title()).isEqualTo("登录故障三");
+                    assertThat(item.status()).isEqualTo(TicketStatus.PROCESSING);
+                    assertThat(item.createdAt()).isNotNull();
+                });
+        assertThat(response.getTotal()).isEqualTo(2);
+        assertThat(response.getTotalPages()).isEqualTo(2);
+    }
+
+    @Test
+    void normalizesBlankTicketKeywordToNoFilter() {
+        ticketService.createTicket("登录故障", "描述一");
+        ticketService.createTicket("网络故障", "描述二");
+
+        PageResponse<TicketSummaryResponse> response =
+                ticketService.listTickets(null, "  ", 1, 20);
+
+        assertThat(response.getTotal()).isEqualTo(2);
+    }
+
+    @Test
+    void rejectsTicketPageSizeAboveMaximum() {
+        assertThatThrownBy(() -> ticketService.listTickets(null, null, 1, 101))
+                .isInstanceOf(InvalidPaginationException.class)
+                .hasMessage("每页条数必须在1到100之间");
     }
 }
