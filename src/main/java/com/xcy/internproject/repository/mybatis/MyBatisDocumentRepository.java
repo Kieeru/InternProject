@@ -38,6 +38,18 @@ public class MyBatisDocumentRepository implements DocumentRepository {
     }
 
     @Override
+    public Optional<Document> update(Long id, String title, String content) {
+        int updatedRows = documentMapper.update(id, title, content);
+        if (updatedRows == 0) {
+            return Optional.empty();
+        }
+        if (updatedRows != 1) {
+            throw new IllegalStateException("文档更新失败，受影响行数：" + updatedRows);
+        }
+        return findById(id);
+    }
+
+    @Override
     public PageResult<DocumentSummary> findPage(DocumentPageQuery query) {
         DocumentPageQuery escapedQuery = new DocumentPageQuery(
                 escapeLikeLiteral(query.titlePrefix()),

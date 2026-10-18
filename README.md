@@ -1,6 +1,6 @@
 # InternProject
 
-一个按阶段迭代的企业知识库与智能工单平台练习项目。当前处于第 2 周的 Spring Boot 单体后端阶段，用户、知识文档和工单已使用 MyBatis/MySQL 持久化，并完成文档与工单的条件分页查询。
+一个按阶段迭代的企业知识库与智能工单平台练习项目。当前已完成第 2 周 MySQL/MyBatis 开发和第 3 周前 4 天 Redis 增量；用户、知识文档和工单已使用 MyBatis/MySQL 持久化，文档按 ID 查询已接入可开关、可降级的 Redis 缓存旁路。MySQL 始终是事实数据源。
 
 ## 当前已实现功能
 
@@ -13,6 +13,14 @@
 - Jakarta Validation 请求参数校验。
 - 全局异常处理和稳定错误码。
 - 基于 JUnit 和 MockMvc 的 Service 测试与接口集成测试。
+- Redis 缓存开关、版本化 Key 工厂、TTL 随机抖动策略和关闭缓存时的 NoOp 降级边界。
+- 热门文档按 ID 的 String/JSON 缓存旁路：首次未命中回源 MySQL 并回填，后续命中不再访问 Repository；超过 512 KiB 的值只返回、不缓存。
+- 不存在文档使用 60～75 秒 `MISSING` 空值缓存，降低重复无效查询造成的缓存穿透。
+- Redis 连接失败、命令超时或缓存 JSON 损坏时回退 MySQL；损坏值会尝试精确删除。
+- 热点文档缓存 MISS 使用带 3 秒 TTL 和唯一 token 的 Redis 短锁协调重建；竞争者最多等待 300 毫秒，超时或 Redis 不可用时回源 MySQL。
+- 文档创建或更新成功后发布精确 ID 事件，只在数据库事务提交后删除正值或空值缓存；回滚不删除缓存。
+- `PUT /documents/{id}` 更新未删除文档；成功返回 200，不存在或逻辑删除返回 404。
+- `GET /cache-statistics` 返回文档与用户权限缓存区域的聚合计数和命中率，不返回 Key、缓存内容或 Redis 地址。
 
 ## 技术栈
 
@@ -21,6 +29,8 @@
 - Spring Web MVC
 - Jakarta Validation
 - MySQL 8.4 LTS（本周实测 8.4.10）
+- Redis 7.4.11（通过 Docker Compose 提供）
+- Spring Data Redis 4.1.1、Lettuce 7.5.2.RELEASE（文档详情缓存已接入）
 - MyBatis Spring Boot Starter 4.0.0、MyBatis XML 动态 SQL
 - Spring JDBC 事务管理
 - Maven
@@ -35,10 +45,10 @@ HTTP 请求
 Controller：接收请求、校验 DTO、确定 HTTP 状态
     ↓
 Service：执行业务规则和状态判断
-    ↓
-Repository 接口：隔离业务层与持久化细节
-    ↓
-MyBatis Repository → Mapper/XML → MySQL
+    ├→ DocumentCache / DocumentRebuildLock：Redis 可选缓存与热点重建协调；关闭时使用 NoOp
+    └→ Repository 接口：隔离业务层与持久化细节
+        ↓
+    MyBatis Repository → Mapper/XML → MySQL（事实来源）
 ```
 
 主要代码目录：
@@ -62,6 +72,7 @@ Controller 不直接访问 Repository，依赖通过构造器注入。
 - JDK 21
 - Maven 3.9 或兼容版本
 - MySQL 8.4 LTS，并已创建相互隔离的本地开发库 `intern_project` 和测试库 `intern_project_test`
+- 第三周 Redis 练习需要 Docker Desktop 和 Docker Compose；MySQL 目前仍由本机服务提供
 
 确认环境：
 
@@ -107,6 +118,34 @@ Started InternProjectApplication
 ```
 
 默认访问地址为 `http://localhost:8080`。修改 Java 代码后需要停止并重新启动应用，当前项目未启用自动热重载。
+
+### 启动第三周 Redis 环境
+
+仓库中的 `compose.yaml` 只管理第三周使用的 Redis，不会启动或修改本机 MySQL。Redis 镜像已使用摘要固定，宿主机端口只绑定到 `127.0.0.1:6379`。
+
+```powershell
+docker compose up -d redis
+docker compose ps
+docker compose exec -T redis redis-cli PING
+```
+
+预期 `PING` 返回 `PONG`，`docker compose ps` 显示 Redis 为 `healthy`。停止和再次启动：
+
+```powershell
+docker compose stop redis
+docker compose start redis
+```
+
+`docker compose down` 会删除容器和项目网络，但默认保留命名数据卷；不要在需要保留本地 Redis 数据时执行 `docker compose down -v`。当前 Spring Boot Docker Compose 集成仍保持关闭，应用不会自动启动容器。
+
+默认 `app.cache.redis.enabled=false`，应用使用 NoOp 缓存并直接查询 MySQL。确认 Redis `PING=PONG` 后，可在 local profile 启动前设置：
+
+```powershell
+$env:REDIS_CACHE_ENABLED="true"
+$env:REDIS_KEY_PREFIX="intern:local"
+```
+
+第 4 天已经接入热点 Key 重建锁、文档更新 API 和事务提交后精确失效。竞争者的 300 毫秒是轮询调度预算，预算内单次 Redis I/O 仍分别受 500 毫秒命令超时约束；预算耗尽后直接回源 MySQL。Redis 不可用时，文档查询和更新仍以 MySQL 结果为准；若数据库提交后的缓存删除恰好失败，旧 Key 最长可能保留到 10～12 分钟正值 TTL 到期，本周不引入消息队列或分布式事务消除该最终一致性窗口。
 
 ## 使用 Apifox 调用接口
 
@@ -174,6 +213,8 @@ Content-Type: application/json
 GET http://localhost:8080/documents/1
 ```
 
+开启 Redis 缓存后，该详情查询采用 cache-aside：先读 `intern:local:document:v1:{id}`，未命中时查询 MySQL 并以 10～12 分钟随机 TTL 回填；分页查询仍直接访问 MySQL。
+
 分页查询：
 
 ```http
@@ -202,7 +243,23 @@ GET http://localhost:8080/documents?titlePrefix=Spring&page=1&size=20
 }
 ```
 
-### 5. 创建工单
+### 5. 更新知识文档
+
+```http
+PUT http://localhost:8080/documents/1
+Content-Type: application/json
+```
+
+```json
+{
+  "title": "Redis 缓存一致性",
+  "content": "数据库事务提交后删除对应缓存 Key。"
+}
+```
+
+更新成功返回 HTTP 200。应用先更新 MySQL 并提交事务，再删除 `intern:local:document:v1:{id}`；在没有并发旧查询稍后回填的顺序流程中，下一次详情查询从 MySQL 读取新值并重建缓存。不存在或已逻辑删除的文档返回 HTTP 404。
+
+### 6. 创建工单
 
 ```http
 POST http://localhost:8080/tickets
@@ -231,7 +288,7 @@ Content-Type: application/json
 }
 ```
 
-### 6. 查询工单
+### 7. 查询工单
 
 ```http
 GET http://localhost:8080/tickets/1
@@ -246,7 +303,7 @@ GET http://localhost:8080/tickets?status=PROCESSING&keyword=登录&page=1&size=2
 `page` 从 1 开始，`size` 取值 1～100；两个列表接口的默认值分别为 1 和 20。
 工单列表只返回 `id`、`title`、`status`、`createdAt`，不返回 `description`。
 
-### 7. 更新工单状态
+### 8. 更新工单状态
 
 ```http
 PUT http://localhost:8080/tickets/1/status
@@ -274,6 +331,21 @@ PENDING → PROCESSING → RESOLVED → CLOSED
   "message": "不允许工单状态从 PENDING 变更为 RESOLVED"
 }
 ```
+
+### 9. 查询缓存统计
+
+```http
+GET http://localhost:8080/cache-statistics
+```
+
+响应按缓存区域返回 `hit`、`negativeHit`、`miss`、`error`、`bypass`、`lookup` 和 `hitRate`。其中：
+
+```text
+lookup = hit + negativeHit + miss
+hitRate = (hit + negativeHit) / lookup
+```
+
+`error` 和 `bypass` 单独展示，不进入命中率分母。这里的 `lookup` 按缓存读取操作计数，不是 HTTP 请求数；一次冷查询的获锁后二次检查、竞争者的每轮轮询都会分别计入，因此该命中率不能直接解释为“多少请求避免了数据库访问”。`error` 按失败的缓存操作计数；一次请求的读取和回填都失败时会增加两次。当前计数保存在单个应用进程内，重启会清零，多实例之间不会自动聚合。
 
 ## 统一响应与错误码
 
@@ -331,6 +403,16 @@ mvn test
 
 测试 profile 会在独立测试库中执行 `schema.sql`。不要让 `TEST_DB_URL` 指向开发库或其他包含真实数据的数据库；测试会清理并重建自己的测试数据。
 
+需要使用测试数据库和 Redis DB 15 启动应用并执行 HTTP 验收时，使用专门的测试运行 goal：
+
+```powershell
+mvn spring-boot:test-run `
+  "-Dspring-boot.run.profiles=test,redis-test" `
+  "-Dspring-boot.run.arguments=--server.port=18080"
+```
+
+Spring Boot Maven Plugin 4.1.1 的 `spring-boot:run -Dspring-boot.run.useTestClasspath=true` 只加入 test scope 依赖，不会加入项目的 `target/test-classes`，因此不能用它加载 `application-test.properties` 或 `application-redis-test.properties`。日常开发库运行仍使用前文的 `spring-boot:run` 与 `local` profile；测试 profile 运行固定使用 `spring-boot:test-run`，避免再次因 DataSource URL 缺失而误判为应用故障。
+
 自动化测试覆盖：
 
 - Spring 应用上下文启动。
@@ -342,12 +424,19 @@ mvn test
 - 无法识别的工单状态值。
 - 文档与工单的分页、条件组合、稳定排序、逻辑删除和非法边界。
 - 工单并发状态更新时的事务与行锁行为。
+- Redis 缓存配置绑定、版本化 Key、TTL 抖动上下界和关闭缓存时的 NoOp 降级。
+- 文档缓存 JSON 往返、正值/空值命中、回填、超大值绕过、分页不使用缓存，以及真实 Redis DB 15 的两组 TTL 和第二次读取不再访问 Repository。
+- 文档更新成功/404/校验、MyBatis 更新边界、创建和更新提交后失效、事务回滚不失效，以及缓存删除失败不反向破坏数据库结果。
+- 热点 Key 的 `SET NX`、3 秒 TTL、唯一 token、Lua 比较删除、8 请求并发单回源、300 毫秒有限等待和超时降级。
+- Redis 连接失败、命令超时、语法或语义损坏 JSON、损坏值删除失败时的 MySQL 降级，以及并发指标累加和统计接口脱敏。
 
 测试过程中可能出现 Mockito 动态加载 Java Agent 的兼容性警告，不影响当前测试结果。
 
 ## 当前限制
 
-- 当前需要自行管理本地 MySQL；尚未引入数据库迁移工具和 Docker Compose 自动编排。
+- 当前仍需自行管理本机 MySQL，且尚未引入数据库迁移工具；Docker Compose 目前只提供第三周 Redis 环境，Spring Boot 不会自动管理它。
+- 文档详情正值/空值缓存、Redis 故障降级、热点 Key 重建锁、事务提交后失效和进程内命中率统计已经完成；权限缓存和工单防重尚未实现。
+- 缓存旁路不是强一致方案：若 MySQL 已提交但 Redis 删除失败，恢复后的 Redis 仍可能返回旧正值；即使删除成功，也可能有更早开始的并发查询在删除后回填旧 MySQL 结果。两种情况都依靠 10～12 分钟正值 TTL 最终收敛，本周明确接受该一致性窗口。
 - 深页仍使用 offset 分页，数据规模继续增长后可评估游标分页。
 - 当前未实现登录认证和权限控制。
 - 文档暂不支持文件上传、版本和访问权限。
@@ -365,4 +454,4 @@ mvn test
 3. 第 10～14 周：Python FastAPI、LightRAG、RAG 评测和 MCP。
 4. 第 15～17 周：集成测试、部署、演示、文档和求职准备。
 
-阶段进度记录位于 `docs/` 下对应目录。当前交接记录见 [2026-10-14 handoff](docs/01_SpringBoot单体后端_第1-4周/2026-10-14_handoff.md)。
+阶段进度记录位于 `docs/` 下对应目录。当前交接记录见 [2026-10-18 handoff](docs/01_SpringBoot单体后端_第1-4周/2026-10-18_handoff.md)，第三周配套复习资料见[第三周第 1～7 天自测题与参考答案](docs/01_SpringBoot单体后端_第1-4周/第三周_第1-7天自测题与参考答案.md)。

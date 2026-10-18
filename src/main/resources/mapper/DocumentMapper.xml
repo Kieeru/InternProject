@@ -22,6 +22,14 @@
           AND deleted = 0
     </select>
 
+    <update id="update">
+        UPDATE documents
+        SET title = #{title},
+            content = #{content}
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+
     <select id="findPage"
             parameterType="com.xcy.internproject.repository.DocumentPageQuery"
             resultType="com.xcy.internproject.repository.mybatis.record.DocumentRecord">

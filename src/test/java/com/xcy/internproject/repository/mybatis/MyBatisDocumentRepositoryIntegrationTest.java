@@ -78,6 +78,32 @@ class MyBatisDocumentRepositoryIntegrationTest {
     }
 
     @Test
+    void updatesActiveDocument() {
+        Document saved = documentRepository.save("更新前标题", "更新前正文");
+
+        Optional<Document> updated = documentRepository.update(
+                saved.getId(), "更新后标题", "更新后正文");
+
+        assertThat(updated).isPresent();
+        assertThat(updated.get().getId()).isEqualTo(saved.getId());
+        assertThat(updated.get().getTitle()).isEqualTo("更新后标题");
+        assertThat(updated.get().getContent()).isEqualTo("更新后正文");
+        assertThat(documentRepository.findById(saved.getId()))
+                .get()
+                .extracting(Document::getTitle, Document::getContent)
+                .containsExactly("更新后标题", "更新后正文");
+    }
+
+    @Test
+    void doesNotUpdateMissingOrLogicallyDeletedDocument() {
+        Document deleted = documentRepository.save("已删除", "不能更新");
+        jdbcTemplate.update("UPDATE documents SET deleted = 1 WHERE id = ?", deleted.getId());
+
+        assertThat(documentRepository.update(deleted.getId(), "新标题", "新正文")).isEmpty();
+        assertThat(documentRepository.update(Long.MAX_VALUE, "新标题", "新正文")).isEmpty();
+    }
+
+    @Test
     void listsDocumentsByCreatedTimeAndIdDescending() {
         LocalDateTime older = LocalDateTime.of(2026, 10, 13, 9, 0);
         LocalDateTime newer = LocalDateTime.of(2026, 10, 13, 10, 0);

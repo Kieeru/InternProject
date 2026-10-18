@@ -5,3 +5,13 @@ spring.datasource.username=${DB_USERNAME}
 spring.datasource.password=${DB_PASSWORD}
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 spring.sql.init.mode=never
+
+# 第三周缓存功能在业务代码接入前保持关闭；启用前先确认 Redis PING 返回 PONG。
+app.cache.redis.enabled=${REDIS_CACHE_ENABLED:false}
+app.cache.redis.key-prefix=${REDIS_KEY_PREFIX:intern:local}
+app.cache.redis.document-rebuild-lock-ttl=3s
+app.cache.redis.document-rebuild-wait-timeout=300ms
+app.cache.redis.document-rebuild-poll-interval=20ms
+spring.data.redis.host=${REDIS_HOST:127.0.0.1}
+spring.data.redis.port=${REDIS_PORT:6379}
+spring.data.redis.database=${REDIS_DATABASE:0}
