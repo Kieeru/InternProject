@@ -10,7 +10,7 @@
 
 **设计依据：** `AGENTS.md`、`README.md`、`docs/myplan.md`、`2026-10-15_handoff.md` 和 2026-10-15 实际代码/环境检查结果。本文件同时承担本周设计说明和实施计划，不另建重复规格文档。
 
-**配套学习资料：** [第三周第 1～7 天自测题与参考答案](第三周_第1-7天自测题与参考答案.md)。第 1～4 天已完成开发、验证与学习问答；第 5～7 天先作为预习题，只有对应实现和验证完成后才能标记为已完成。
+**配套学习资料：** [第三周第 1～7 天自测题与参考答案](第三周_第1-7天自测题与参考答案.md)。第 1～7 天开发、验证与学习问答均已完成，第三周已经全部闭环。
 
 ## 一、开始实施前的已验证基线
 
@@ -118,7 +118,7 @@ Service ───────────────► Repository 接口 ─�
 | 文档详情 | `${prefix}:document:v1:{documentId}` | 带类型标记的 JSON：`FOUND + Document` 或 `MISSING` | 命中：10 分钟 + 0～120 秒；空值：60 秒 + 0～15 秒 | `v1` 便于结构升级；单值同时表达不存在，避免双 Key 竞态 |
 | 文档重建锁 | `${prefix}:document-rebuild-lock:v1:{documentId}` | 每次获取生成的随机 token | 3 秒 | 仅协调热点 Key 重建，必须比较 token 后再删除 |
 | 用户权限 | `${prefix}:user-permissions:v1:{userId}` | 排序后的权限码 JSON 数组，可为空数组 | 5 分钟 + 0～60 秒 | 不缓存用户名、邮箱或 Token；空数组和缓存未命中可区分 |
-| 工单防重 | `${prefix}:ticket-dedupe:v1:{sha256}` | 每次获取生成的随机 token | 10 秒固定窗口 | SHA-256 输入为标题、分隔符和描述；Key 不暴露工单正文 |
+| 工单防重 | `${prefix}:ticket-dedupe:v1:{sha256}` | 每次获取生成的随机 token | 10 秒固定窗口 | SHA-256 输入使用标题和描述的长度前缀 UTF-8 编码，避免字段边界歧义；Key 不暴露工单正文 |
 
 补充约束：
 
@@ -200,7 +200,7 @@ UserPermissionService.getPermissionCodes(userId)
 
 ```text
 POST /tickets
-→ 对 title + 分隔符 + description 计算 SHA-256
+→ 对 title 和 description 的长度前缀 UTF-8 编码计算 SHA-256
 → Redis SET dedupeKey randomToken NX PX 10000
   → 成功：写入 MySQL；成功后保留 Key 到 TTL 到期
   → 已存在：返回 HTTP 409 / DUPLICATE_SUBMISSION
@@ -392,6 +392,8 @@ hitRate = (hit + negativeHit) / lookup
 
 ### 第 5 天：用户权限读取与缓存
 
+> **执行状态（2026-10-19）：开发、验收与学习问答均已完成。** 已按 TDD 实现 MyBatis 用户权限 JOIN、`UserPermissionRepository`、内部 `UserPermissionService`、NoOp/Redis 权限缓存和显式 `evict(userId)`。权限码去重并稳定排序为 JSON 数组，TTL 为 5～6 分钟，空数组按负命中统计；Redis 连接失败、超时或语法/语义损坏载荷均回源 MySQL。第 5 天目标测试 34 个全部通过、0 跳过；启用真实 Redis 的完整测试为 190 个全部通过、0 跳过。未新增 Controller、认证或角色管理 API。用户完成五道学习检查，复盘后能够说明权限集合稳定序列化、空权限与用户不存在的语义边界、短 TTL 的安全原因、事务提交后失效和未授权公开接口的信息暴露风险。
+
 **学习基础：** RBAC 的用户—角色—权限关系；Set 去重；缓存空集合；权限变更后的失效边界。
 
 **TDD 增量：**
@@ -414,6 +416,8 @@ hitRate = (hit + negativeHit) / lookup
 5. 为什么本周不开放“查询任意用户权限”的公开接口？
 
 ### 第 6 天：工单短窗口重复提交保护
+
+> 状态：开发、自动化测试、真实运行验收与五道学习检查题均已完成；现已进入并完成第 7 天综合验收。
 
 **学习基础：** 分布式锁与幂等的区别；请求指纹；fail-open/fail-closed；锁误删和业务窗口。
 
@@ -439,6 +443,8 @@ hitRate = (hit + negativeHit) / lookup
 5. 第 4 周客户端幂等键需要解决本方案的哪些限制？
 
 ### 第 7 天：完整集成、持久化/过期观察、故障演练与文档
+
+> 状态：真实 Redis 集成测试、真实 HTTP 综合流程、停止/恢复故障演练、配置观察和五道学习检查题均已完成。
 
 **学习基础：** Redis 内存淘汰策略；RDB/AOF 恢复边界；客户端超时；缓存监控；如何用证据而不是主观延迟判断命中。
 
@@ -500,6 +506,11 @@ hitRate = (hit + negativeHit) / lookup
 
 - 用户已经接受本计划，包括 `PUT /documents/{id}` 和 10 秒内容指纹防重规则。
 - 第 1～4 天开发增量、自动化测试、真实运行验收和学习问答均已完成。
+- 第 5 天开发、自动化测试、真实 Redis 验收和五道学习检查题均已完成。
+- 第 6 天工单 10 秒短窗口防重已完成开发、验收和学习问答：相同内容并发只写入一次，不同内容互不阻塞，窗口到期允许再次创建；Redis 故障时 fail-open，MySQL 保存失败时通过 token + Lua 安全释放。
+- 第 7 天综合验收与学习问答均已完成：独立审查发现的文档损坏载荷强制类型转换问题已按红灯—绿灯修复，工单 fail-open 也补齐了每故障期一次、不附异常链且不含业务载荷的固定 WARN；修复后真实 Redis 目标测试 45 个、完整测试 208 个，均为 0 failures、0 errors、0 skipped。真实应用完成正值/空值、更新失效、并发重建、工单防重以及 Redis 停止—恢复演练。用户能够说明缓存丢失后的 MySQL 重建、淘汰策略、客观命中证据、客户端恢复实验，以及长期原则和阶段性方案的边界。
 - Docker Redis 已恢复为 `healthy`、`PING=PONG`。无并发干扰的顺序更新已证明提交后 Key 立即删除、下一次 GET 返回 MySQL 新值；Redis 停机时 PUT/GET 仍为 200，Lettuce 恢复后自动重连。
+- 当前本地 Redis 实测为 7.4.11、`maxmemory=0`、`maxmemory-policy=noeviction`、AOF 关闭、RDB 规则启用；这是学习环境现状，不作为生产配置建议。唯一 TTL 探针按期过期，所有验收缓存 Key 均按精确 Key 清理。
+- 权限 Service 因本周不开放公开 Controller，停机降级由真实 Spring/MySQL 加不可连接 Redis 端口的集成测试替代；Redis 故障导致缓存请求回源 MySQL 的压力风险只作定性说明，本轮没有虚构压测数据，限流仍留待后续阶段。
 - 已实测删除失败的一致性边界：Redis 停机前存在的旧 Key 会在恢复后继续陈旧；此外，删除成功后仍可能发生并发旧查询结果回填。两者最长都由 10～12 分钟正值 TTL 决定；本周按既定设计不引入消息队列、延迟双删或分布式事务。
-- 下一步可以进入第 5 天用户权限缓存，从“第二次读取不再访问 Repository”的失败测试开始。
+- 第三周已全部闭环；下一步从最新 `main` 创建第四周开发分支，进入 Java 并发、JVM 与单体 V0.1 第一轮整理。

@@ -1,6 +1,6 @@
 # InternProject
 
-一个按阶段迭代的企业知识库与智能工单平台练习项目。当前已完成第 2 周 MySQL/MyBatis 开发和第 3 周前 4 天 Redis 增量；用户、知识文档和工单已使用 MyBatis/MySQL 持久化，文档按 ID 查询已接入可开关、可降级的 Redis 缓存旁路。MySQL 始终是事实数据源。
+一个按阶段迭代的企业知识库与智能工单平台练习项目。当前已完成第 2 周 MySQL/MyBatis 开发和第 3 周 Redis 功能开发、最终综合验收及全部学习问答，准备进入第 4 周 Java 并发、JVM 与第一轮整理。用户、知识文档和工单已使用 MyBatis/MySQL 持久化，文档按 ID 查询与内部用户权限读取已接入可开关、可降级的 Redis 缓存旁路，工单创建已接入 10 秒短窗口防重。MySQL 始终是事实数据源。
 
 ## 当前已实现功能
 
@@ -21,6 +21,10 @@
 - 文档创建或更新成功后发布精确 ID 事件，只在数据库事务提交后删除正值或空值缓存；回滚不删除缓存。
 - `PUT /documents/{id}` 更新未删除文档；成功返回 200，不存在或逻辑删除返回 404。
 - `GET /cache-statistics` 返回文档与用户权限缓存区域的聚合计数和命中率，不返回 Key、缓存内容或 Redis 地址。
+- 用户权限通过 `users → user_roles → roles → role_permissions → permissions` 查询；多个角色的重复权限会去重并按权限码稳定排序，逻辑删除的用户、角色和权限不会生效。
+- 内部 `UserPermissionService` 将权限集合缓存为排序后的 JSON 数组，TTL 为 5～6 分钟；空权限数组也可命中，Redis 连接失败、超时或损坏载荷时回退 MySQL，并提供精确 `evict(userId)` 边界。本周未开放权限查询 Controller。
+- 工单创建根据标题和描述的长度前缀 UTF-8 编码计算 SHA-256 指纹并执行 Redis `SET NX`，使用随机 token 和固定 10 秒 TTL；窗口内相同内容返回 HTTP 409 / `DUPLICATE_SUBMISSION`，不同内容互不阻塞。长度前缀保证字段本身包含 NUL 字符时仍不会产生拼接歧义。
+- 工单保存成功后保留防重 Key 到期；MySQL 保存失败时用 Lua 比较 token 后只删除自己的 Key。Redis 不可用时采用 fail-open，继续写入 MySQL并记录防重降级。
 
 ## 技术栈
 
@@ -46,6 +50,8 @@ Controller：接收请求、校验 DTO、确定 HTTP 状态
     ↓
 Service：执行业务规则和状态判断
     ├→ DocumentCache / DocumentRebuildLock：Redis 可选缓存与热点重建协调；关闭时使用 NoOp
+    ├→ UserPermissionCache：内部权限集合缓存；关闭或故障时回源 MySQL
+    ├→ TicketDuplicateGuard：工单创建的 Redis 短窗口防重；故障时 fail-open
     └→ Repository 接口：隔离业务层与持久化细节
         ↓
     MyBatis Repository → Mapper/XML → MySQL（事实来源）
@@ -146,6 +152,14 @@ $env:REDIS_KEY_PREFIX="intern:local"
 ```
 
 第 4 天已经接入热点 Key 重建锁、文档更新 API 和事务提交后精确失效。竞争者的 300 毫秒是轮询调度预算，预算内单次 Redis I/O 仍分别受 500 毫秒命令超时约束；预算耗尽后直接回源 MySQL。Redis 不可用时，文档查询和更新仍以 MySQL 结果为准；若数据库提交后的缓存删除恰好失败，旧 Key 最长可能保留到 10～12 分钟正值 TTL 到期，本周不引入消息队列或分布式事务消除该最终一致性窗口。
+
+第 5 天已经接入内部用户权限读取与缓存。权限首次读取从 MySQL 的用户—角色—权限关系表加载并回填 `${prefix}:user-permissions:v1:{userId}`，第二次读取命中 Redis；空权限集合保存为 `[]` 并按负命中统计。当前没有公开权限查询接口，也没有角色写接口；未来修改用户角色关系时，应在数据库事务提交后调用精确失效边界。
+
+第 6 天已经接入工单短窗口防重。开启 Redis 后，`POST /tickets` 会对标题和描述计算 SHA-256，并尝试写入 `${prefix}:ticket-dedupe:v1:{sha256}`；10 秒内相同内容重复提交返回 HTTP 409。该机制只防短窗口重复，不保存首次结果，也不能替代完整幂等。Redis 故障时工单仍写入 MySQL，因此故障期间可能产生重复工单。
+
+2026-10-20 的第三周综合验收使用真实 Redis 7.4.11 和独立测试库完成：正值/空值命中、更新提交后失效、并发热点重建、权限 Service 故障回源、工单并发防重、Redis 停止和恢复均有自动化或真实 HTTP 证据。运行中的应用在 Redis 停止时仍能从 MySQL 返回文档并创建工单，恢复后无需重启即可重新使用 Redis；工单防重降级会按故障期记录一次不含业务载荷的 WARN。最终审查还补充了损坏文档 JSON 的严格字段类型校验。最终测试证据以当天 handoff 为准。
+
+本地 Compose Redis 的实测配置为 `maxmemory=0`、`maxmemory-policy=noeviction`、AOF 关闭、RDB 规则启用，并挂载 `redis-data` 命名卷。该配置用于本地学习和故障演练，不代表生产环境的内存上限、淘汰和持久化方案；业务正确性不能依赖缓存数据在重启后仍然存在。
 
 ## 使用 Apifox 调用接口
 
@@ -369,6 +383,7 @@ hitRate = (hit + negativeHit) / lookup
 | 400 | `INVALID_STATUS_TRANSITION` | 工单状态流转不合法 |
 | 404 | `RESOURCE_NOT_FOUND` | 用户、文档或工单不存在 |
 | 409 | `DUPLICATE_RESOURCE` | 用户名或邮箱已存在 |
+| 409 | `DUPLICATE_SUBMISSION` | 10 秒窗口内重复提交相同标题和描述的工单 |
 
 不存在的工单响应示例：
 
@@ -429,13 +444,16 @@ Spring Boot Maven Plugin 4.1.1 的 `spring-boot:run -Dspring-boot.run.useTestCla
 - 文档更新成功/404/校验、MyBatis 更新边界、创建和更新提交后失效、事务回滚不失效，以及缓存删除失败不反向破坏数据库结果。
 - 热点 Key 的 `SET NX`、3 秒 TTL、唯一 token、Lua 比较删除、8 请求并发单回源、300 毫秒有限等待和超时降级。
 - Redis 连接失败、命令超时、语法或语义损坏 JSON、损坏值删除失败时的 MySQL 降级，以及并发指标累加和统计接口脱敏。
+- 用户权限 JOIN 的多角色、重复权限、稳定排序、逻辑删除、空权限和不存在用户语义；权限缓存的非空/空数组往返、5～6 分钟 TTL、第二次读取不再访问 Repository、损坏值清理、精确失效和 Redis 连接失败回源 MySQL。
+- 工单内容指纹的稳定性和字段边界、真实 Redis `SET NX`、固定 10 秒 TTL、随机 token、Lua 安全释放、相同内容 8 请求并发单写入、不同内容互不阻塞、窗口到期后允许再次创建，以及 Redis 故障 fail-open。
 
 测试过程中可能出现 Mockito 动态加载 Java Agent 的兼容性警告，不影响当前测试结果。
 
 ## 当前限制
 
 - 当前仍需自行管理本机 MySQL，且尚未引入数据库迁移工具；Docker Compose 目前只提供第三周 Redis 环境，Spring Boot 不会自动管理它。
-- 文档详情正值/空值缓存、Redis 故障降级、热点 Key 重建锁、事务提交后失效和进程内命中率统计已经完成；权限缓存和工单防重尚未实现。
+- 文档详情正值/空值缓存、Redis 故障降级、热点 Key 重建锁、事务提交后失效、用户权限读取缓存、工单短窗口防重和进程内命中率统计已经完成，第三周最终综合演练与第 1～7 天学习问答也已全部完成。
+- 工单防重只按完全相同的标题和描述识别 10 秒窗口内的重复提交；Redis 故障时为保证创建可用会接受重复风险，也不会保存首次响应供客户端重放。第 4 周仍需用客户端幂等键和持久化记录升级为完整幂等。
 - 缓存旁路不是强一致方案：若 MySQL 已提交但 Redis 删除失败，恢复后的 Redis 仍可能返回旧正值；即使删除成功，也可能有更早开始的并发查询在删除后回填旧 MySQL 结果。两种情况都依靠 10～12 分钟正值 TTL 最终收敛，本周明确接受该一致性窗口。
 - 深页仍使用 offset 分页，数据规模继续增长后可评估游标分页。
 - 当前未实现登录认证和权限控制。
@@ -454,4 +472,4 @@ Spring Boot Maven Plugin 4.1.1 的 `spring-boot:run -Dspring-boot.run.useTestCla
 3. 第 10～14 周：Python FastAPI、LightRAG、RAG 评测和 MCP。
 4. 第 15～17 周：集成测试、部署、演示、文档和求职准备。
 
-阶段进度记录位于 `docs/` 下对应目录。当前交接记录见 [2026-10-18 handoff](docs/01_SpringBoot单体后端_第1-4周/2026-10-18_handoff.md)，第三周配套复习资料见[第三周第 1～7 天自测题与参考答案](docs/01_SpringBoot单体后端_第1-4周/第三周_第1-7天自测题与参考答案.md)。
+阶段进度记录位于 `docs/` 下对应目录。当前交接记录见 [2026-10-20 handoff](docs/01_SpringBoot单体后端_第1-4周/2026-10-20_handoff.md)，第三周配套复习资料见[第三周第 1～7 天自测题与参考答案](docs/01_SpringBoot单体后端_第1-4周/第三周_第1-7天自测题与参考答案.md)。

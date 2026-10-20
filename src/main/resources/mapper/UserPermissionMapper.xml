@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xcy.internproject.repository.mybatis.mapper.UserPermissionMapper">
+
+    <select id="findByUserId"
+            parameterType="java.lang.Long"
+            resultType="com.xcy.internproject.repository.mybatis.record.UserPermissionRecord">
+        SELECT u.id AS user_id,
+               p.code AS permission_code
+        FROM users u
+        LEFT JOIN user_roles ur
+               ON ur.user_id = u.id
+        LEFT JOIN roles r
+               ON r.id = ur.role_id
+              AND r.deleted = 0
+        LEFT JOIN role_permissions rp
+               ON rp.role_id = r.id
+        LEFT JOIN permissions p
+               ON p.id = rp.permission_id
+              AND p.deleted = 0
+        WHERE u.id = #{userId}
+          AND u.deleted = 0
+        ORDER BY p.code ASC
+    </select>
+
+</mapper>

@@ -121,6 +121,7 @@ class RedisDocumentCacheTest {
             "null",
             "{}",
             "{\"type\":\"FOUND\",\"id\":99,\"title\":\"标题\",\"content\":\"正文\"}",
+            "{\"type\":\"FOUND\",\"id\":17,\"title\":123,\"content\":true}",
             "{\"type\":\"FOUND\",\"id\":17,\"title\":null,\"content\":\"正文\"}",
             "{\"type\":\"MISSING\",\"id\":17,\"title\":null,\"content\":null}"
     })

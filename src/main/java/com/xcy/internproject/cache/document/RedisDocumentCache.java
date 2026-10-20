@@ -11,6 +11,7 @@ import com.xcy.internproject.cache.metrics.CacheArea;
 import com.xcy.internproject.cache.metrics.CacheMetricsRecorder;
 import com.xcy.internproject.model.Document;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -53,7 +54,7 @@ public final class RedisDocumentCache implements DocumentCache {
 
         DocumentCachePayload payload;
         try {
-            payload = objectMapper.readValue(result.value(), DocumentCachePayload.class);
+            payload = parsePayload(objectMapper.readTree(result.value()));
         } catch (JacksonException exception) {
             return corrupted(documentId);
         }
@@ -136,6 +137,43 @@ public final class RedisDocumentCache implements DocumentCache {
         return documentId.equals(payload.id())
                 && payload.title() != null
                 && payload.content() != null;
+    }
+
+    private static DocumentCachePayload parsePayload(JsonNode root) {
+        if (root == null || !root.isObject()) {
+            return null;
+        }
+        JsonNode type = root.get("type");
+        if (type == null || !type.isString()) {
+            return null;
+        }
+        if (DocumentCachePayloadType.MISSING.name().equals(type.stringValue())) {
+            return isNullOrMissing(root.get("id"))
+                    && isNullOrMissing(root.get("title"))
+                    && isNullOrMissing(root.get("content"))
+                    ? DocumentCachePayload.missing()
+                    : null;
+        }
+        if (!DocumentCachePayloadType.FOUND.name().equals(type.stringValue())) {
+            return null;
+        }
+        JsonNode id = root.get("id");
+        JsonNode title = root.get("title");
+        JsonNode content = root.get("content");
+        if (id == null || !id.isIntegralNumber() || !id.canConvertToLong()
+                || title == null || !title.isString()
+                || content == null || !content.isString()) {
+            return null;
+        }
+        return new DocumentCachePayload(
+                DocumentCachePayloadType.FOUND,
+                id.longValue(),
+                title.stringValue(),
+                content.stringValue());
+    }
+
+    private static boolean isNullOrMissing(JsonNode value) {
+        return value == null || value.isNull();
     }
 
     private enum DocumentCachePayloadType {
