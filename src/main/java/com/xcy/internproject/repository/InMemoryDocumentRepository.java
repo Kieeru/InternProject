@@ -29,6 +29,13 @@ public class InMemoryDocumentRepository implements DocumentRepository {
     }
 
     @Override
+    public Optional<Document> update(Long id, String title, String content) {
+        StoredDocument updated = documents.computeIfPresent(id, (key, stored) ->
+                new StoredDocument(new Document(id, title, content), stored.createdAt()));
+        return Optional.ofNullable(updated).map(StoredDocument::document);
+    }
+
+    @Override
     public PageResult<DocumentSummary> findPage(DocumentPageQuery query) {
         var matchingDocuments = documents.values().stream()
                 .filter(stored -> query.titlePrefix() == null

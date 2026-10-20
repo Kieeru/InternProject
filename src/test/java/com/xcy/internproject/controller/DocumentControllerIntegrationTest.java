@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -114,6 +115,57 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("文档（ID：999999）不存在"))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void updatesExistingDocument() throws Exception {
+        Document document = documentService.createDocument("更新前", "旧正文");
+
+        mockMvc.perform(put("/documents/{id}", document.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "更新后",
+                                  "content": "新正文"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("OK"))
+                .andExpect(jsonPath("$.data.id").value(document.getId()))
+                .andExpect(jsonPath("$.data.title").value("更新后"))
+                .andExpect(jsonPath("$.data.content").value("新正文"));
+    }
+
+    @Test
+    void returnsNotFoundWhenUpdatingMissingDocument() throws Exception {
+        mockMvc.perform(put("/documents/{id}", 999999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "更新后",
+                                  "content": "新正文"
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("文档（ID：999999）不存在"));
+    }
+
+    @Test
+    void rejectsBlankTitleWhenUpdatingDocument() throws Exception {
+        Document document = documentService.createDocument("更新前", "旧正文");
+
+        mockMvc.perform(put("/documents/{id}", document.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": " ",
+                                  "content": "新正文"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("title: 标题不能为空"));
     }
 
     @Test

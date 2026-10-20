@@ -115,7 +115,15 @@ exception/    领域异常和统一异常处理
 mvn test
 ```
 
-- 当任务涉及启动或运行时行为时，应执行 `mvn spring-boot:run` 并实际调用受影响的 HTTP 流程。
+- 当任务涉及启动或运行时行为时，应实际启动应用并调用受影响的 HTTP 流程。使用开发库和 `local` profile 时执行 `mvn spring-boot:run "-Dspring-boot.run.profiles=local"`。
+- 使用 `src/test/resources/application-test.properties` 或 `application-redis-test.properties` 做 HTTP 运行验收时，固定使用 Spring Boot 4.x 的测试运行 goal：
+
+```powershell
+mvn spring-boot:test-run "-Dspring-boot.run.profiles=test,redis-test" "-Dspring-boot.run.arguments=--server.port=0"
+```
+
+- 禁止把 `spring-boot:run -Dspring-boot.run.useTestClasspath=true` 当作加载测试配置文件的方式。当前 Spring Boot Maven Plugin 4.1.1 中，该参数只包含 test scope 依赖，不会把项目的 `target/test-classes` 加入运行类路径，因此无法加载其中的 `application-test.properties`。如果因特殊原因必须使用 `spring-boot:run` 运行测试 profile，必须显式加入 `-Dspring-boot.run.additional-classpath-elements=target/test-classes`，并在执行前确认测试资源已生成。
+- 运行测试 profile 前必须确认 `TEST_DB_URL` 指向独立测试库，不能指向开发库或真实数据；不得通过复制或输出真实密码来规避配置加载问题。
 - 不能仅根据编译成功、历史测试结果或代码检查宣称任务完成。应报告最新执行的命令、测试数量、失败数量和相关警告。
 - 只有在 `compose.yaml` 已定义所需服务，并确认 Docker 可用后，才能启用 Spring Docker Compose 集成。
 

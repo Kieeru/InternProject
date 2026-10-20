@@ -14,6 +14,11 @@ public interface DocumentMapper {
 
     DocumentRecord findById(@Param("id") Long id);
 
+    int update(
+            @Param("id") Long id,
+            @Param("title") String title,
+            @Param("content") String content);
+
     List<DocumentRecord> findPage(DocumentPageQuery query);
 
     long count(DocumentPageQuery query);

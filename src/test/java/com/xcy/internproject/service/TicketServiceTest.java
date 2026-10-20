@@ -1,5 +1,6 @@
 package com.xcy.internproject.service;
 
+import com.xcy.internproject.cache.ticket.NoOpTicketDuplicateGuard;
 import com.xcy.internproject.exception.InvalidTicketStatusTransitionException;
 import com.xcy.internproject.exception.ResourceNotFoundException;
 import com.xcy.internproject.exception.InvalidPaginationException;
@@ -22,7 +23,7 @@ class TicketServiceTest {
     @BeforeEach
     void setUp() {
         ticketRepository = new InMemoryTicketRepository();
-        ticketService = new TicketService(ticketRepository);
+        ticketService = new TicketService(ticketRepository, new NoOpTicketDuplicateGuard());
     }
 
     @Test

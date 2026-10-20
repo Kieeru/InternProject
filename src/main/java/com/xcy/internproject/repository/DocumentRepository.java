@@ -11,5 +11,7 @@ public interface DocumentRepository {
 
     Optional<Document> findById(Long id);
 
+    Optional<Document> update(Long id, String title, String content);
+
     PageResult<DocumentSummary> findPage(DocumentPageQuery query);
 }

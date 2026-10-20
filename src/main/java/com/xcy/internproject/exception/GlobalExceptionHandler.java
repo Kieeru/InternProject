@@ -27,6 +27,13 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("DUPLICATE_RESOURCE", exception.getMessage()));
     }
 
+    @ExceptionHandler(DuplicateSubmissionException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateSubmission(
+            DuplicateSubmissionException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error("DUPLICATE_SUBMISSION", exception.getMessage()));
+    }
+
     @ExceptionHandler(InvalidTicketStatusTransitionException.class)
     public ResponseEntity<ApiResponse<Void>> handleInvalidStatusTransition(
             InvalidTicketStatusTransitionException exception) {

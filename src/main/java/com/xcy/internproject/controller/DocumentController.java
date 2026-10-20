@@ -4,6 +4,7 @@ import com.xcy.internproject.dto.ApiResponse;
 import com.xcy.internproject.dto.CreateDocumentRequest;
 import com.xcy.internproject.dto.DocumentSummaryResponse;
 import com.xcy.internproject.dto.PageResponse;
+import com.xcy.internproject.dto.UpdateDocumentRequest;
 import com.xcy.internproject.model.Document;
 import com.xcy.internproject.service.DocumentService;
 import jakarta.validation.Valid;
@@ -12,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -37,6 +39,14 @@ public class DocumentController {
     @GetMapping("/{id}")
     public ApiResponse<Document> getDocument(@PathVariable Long id) {
         return ApiResponse.success(documentService.getDocument(id));
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<Document> updateDocument(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateDocumentRequest request) {
+        return ApiResponse.success(documentService.updateDocument(
+                id, request.getTitle(), request.getContent()));
     }
 
     @GetMapping
